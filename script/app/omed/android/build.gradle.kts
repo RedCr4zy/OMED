@@ -1,3 +1,7 @@
+plugins {
+    id("com.chaquo.python") version "17.0.0" apply false
+}
+
 allprojects {
     repositories {
         google()

@@ -75,19 +75,35 @@ async def main():
 # ============================================================
 
 server_thread = None
+server_running = False
+
+def run_server():
+    global server_running
+
+    try:
+        asyncio.run(main())
+    except OSError as error:
+        print(f"Impossible de démarrer le serveur : {error}")
+    except Exception as error:
+        print(f"Erreur serveur : {error}")
+    finally:
+        server_running = False
 
 
 def start_server():
     global server_thread
+    global server_running
 
-    if server_thread is not None and server_thread.is_alive():
+    if server_running:
         print("Le serveur est déjà lancé.")
         return
 
     print("Démarrage du serveur Python...")
 
+    server_running = True
+
     server_thread = threading.Thread(
-        target=lambda: asyncio.run(main()),
+        target=run_server,
         daemon=True
     )
 

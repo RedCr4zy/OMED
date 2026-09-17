@@ -6,17 +6,11 @@ import './constants/colors.dart';
 
 import './constants/variables.dart';
 
-// ============================================================
-// >>> AJOUT : MethodChannel + Timer
-// ============================================================
-
 import 'package:flutter/services.dart';
 
 import 'dart:async';
 
-// ============================================================
-// <<< FIN AJOUT
-// ============================================================
+import 'dart:io';
 
 void main() {
   runApp(const MainApp());
@@ -34,64 +28,119 @@ class _MainAppState extends State<MainApp> {
 
   late WebSocketChannel channel;
 
-  // ==========================================================
-  // >>> AJOUT : communication avec Python
-  // ==========================================================
-
   static const pythonChannel = MethodChannel('omed/python');
 
   final List<String> pythonLogs = [];
 
   Timer? pythonLogTimer;
 
-  // ==========================================================
-  // <<< FIN AJOUT
-  // ==========================================================
+  Process? linuxPythonProcess;
 
   @override
   void initState() {
     super.initState();
-
-    channel = WebSocketChannel.connect(Uri.parse(AppVariables.websocketUrl));
-
-    channel.stream.listen((message) {
-      print('Message reçu : $message');
-    });
-
-    // ========================================================
-    // >>> AJOUT : lancement du serveur Python
-    // ========================================================
-
-    startPythonServer();
-
-    // ========================================================
-    // <<< FIN AJOUT
-    // ========================================================
   }
 
-  // ==========================================================
-  // >>> AJOUT : démarrer Python
-  // ==========================================================
-
   Future<void> startPythonServer() async {
+    if (Platform.isAndroid) {
+      await startPythonServerAndroid();
+    } else if (Platform.isLinux) {
+      await startPythonServerLinux();
+    }
+  }
+
+  Future<void> startPythonServerAndroid() async {
     try {
       await pythonChannel.invokeMethod('startServer');
 
-      print('Serveur Python lancé.');
+      print('Serveur python Android lancé');
 
       startPythonLogReader();
     } catch (error) {
-      print('Erreur lors du lancement du serveur Python : $error');
+      print('Erreur lancement python Android : $error');
 
       setState(() {
-        pythonLogs.add('[ERREUR] Impossible de lancer Python : $error');
+        pythonLogs.add('[ERREUR] Impossible de lancer python : $error');
       });
     }
   }
 
-  // ==========================================================
-  // >>> AJOUT : récupérer les logs Python
-  // ==========================================================
+  Future<void> initializeServer() async {
+    await startPythonServer();
+
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    await connectToWebSocket();
+  }
+
+  Future<void> connectToWebSocket() async {
+    for (int attempt = 1; attempt <= 20; attempt++) {
+      try {
+        final newChannel = WebSocketChannel.connect(
+          Uri.parse(AppVariables.websocketUrl),
+        );
+
+        await newChannel.ready;
+
+        channel = newChannel;
+
+        channel.stream.listen((message) {
+          print('Message reçu : $message');
+        });
+
+        print('WebSocket connecté.');
+
+        return;
+      } catch (error) {
+        print(
+          'Connexion WebSocket échouée '
+          '(tentative $attempt/20) : $error',
+        );
+
+        await Future.delayed(const Duration(milliseconds: 250));
+      }
+    }
+
+    setState(() {
+      pythonLogs.add(
+        '[ERREUR] Impossible de se connecter au serveur WebSocket.',
+      );
+    });
+  }
+
+  Future<void> startPythonServerLinux() async {
+    try {
+      linuxPythonProcess = await Process.start('python3', ['server/server.py']);
+
+      linuxPythonProcess!.stdout
+          .transform(const SystemEncoding().decoder)
+          .listen((data) {
+            setState(() {
+              pythonLogs.addAll(
+                data.split('\n').where((line) => line.isNotEmpty),
+              );
+            });
+          });
+
+      linuxPythonProcess!.stderr
+          .transform(const SystemEncoding().decoder)
+          .listen((data) {
+            setState(() {
+              pythonLogs.addAll(
+                data.split('\n').where((line) => line.isNotEmpty),
+              );
+            });
+          });
+
+      print('Serveur python lancé !');
+    } catch (error) {
+      print('Erreur lancement python Linux : $error');
+
+      setState(() {
+        pythonLogs.add('[ERREUR] Impossible de lancer python : $error');
+      });
+    }
+  }
 
   void startPythonLogReader() {
     pythonLogTimer?.cancel();
@@ -115,10 +164,6 @@ class _MainAppState extends State<MainApp> {
     });
   }
 
-  // ==========================================================
-  // <<< FIN AJOUT : logs Python
-  // ==========================================================
-
   void sendMessage(String message) {
     print(message);
 
@@ -127,15 +172,9 @@ class _MainAppState extends State<MainApp> {
 
   @override
   void dispose() {
-    // ========================================================
-    // >>> AJOUT : arrêter le timer Python
-    // ========================================================
-
     pythonLogTimer?.cancel();
 
-    // ========================================================
-    // <<< FIN AJOUT
-    // ========================================================
+    linuxPythonProcess?.kill();
 
     input.dispose();
 
@@ -219,9 +258,6 @@ class _MainAppState extends State<MainApp> {
                 ),
               ),
 
-              // ==================================================
-              // >>> AJOUT : CONSOLE PYTHON
-              // ==================================================
               const SizedBox(height: 40),
 
               Text(
@@ -267,10 +303,6 @@ class _MainAppState extends State<MainApp> {
                   ),
                 ),
               ),
-
-              // ==================================================
-              // <<< FIN AJOUT : CONSOLE PYTHON
-              // ==================================================
             ],
           ),
         ),

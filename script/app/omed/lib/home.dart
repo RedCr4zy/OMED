@@ -120,7 +120,7 @@ class _HomeState extends State<Home> {
                     ),
 
                     DropdownButtonFormField<SoundfontPreset>(
-                      value: _selectedPreset,
+                      initialValue: _selectedPreset,
                       isExpanded: true,
                       decoration: const InputDecoration(
                         labelText: 'Instrument',
@@ -143,7 +143,7 @@ class _HomeState extends State<Home> {
                     const SizedBox(height: 20),
 
                     DropdownButtonFormField<int>(
-                      value: _selectedNote,
+                      initialValue: _selectedNote,
                       decoration: const InputDecoration(
                         labelText: 'Note',
                         border: OutlineInputBorder(),

@@ -4,17 +4,19 @@ class AppColors {
   AppColors._();
 
   // Couleurs principales
-  static const Color primary = Color(0xFF6C63FF);
-  static const Color secondary = Color(0xFF00C2FF);
+  static const Color primary = Color(0xFF7C5CFC);
+  static const Color secondary = Color(0xFF4C8DFF);
 
   // Arrière-plans
-  static const Color background = Color(0xFF000051);
-  static const Color surface = Color(0xFF1B3022);
+  static const Color background = Color(0xFF0F1117);
+  static const Color primarySurface = Color(0xFFF5F5F5);
+  static const Color secondarySurface = Color(0xFF191D27);
   static const Color outline = Color(0xFF503B31);
+  static const Color transparent = Color.fromARGB(0, 255, 255, 255);
 
   // Texte
-  static const Color textPrimary = Color(0xFFB3C2F2);
-  static const Color textSecondary = Color(0xFF735CDD);
+  static const Color textPrimary = Color(0xFFF5F7FA);
+  static const Color textSecondary = Color(0xFF9CA3AF);
 
   // États
   static const Color success = Color(0xFF4CAF50);

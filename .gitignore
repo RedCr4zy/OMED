@@ -1,0 +1,20 @@
+# Configuration locale et secrets
+.env
+.env.*
+!.env.example
+
+# Fichiers sensibles spécifiques
+script/app/omed/lib/secrets.dart
+script/app/omed/android/app/google-services.json
+script/app/omed/lib/.env.local
+script/app/omed/android/build/
+
+# SDK Flutter téléchargé localement
+script/app/omed/flutter/
+
+# Configuration locale de VS Code
+script/app/.vscode/
+script/app/omed/.vscode/
+
+# Commande locale
+script/app/command

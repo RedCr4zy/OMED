@@ -1,5 +1,8 @@
 plugins {
     id("com.android.application")
+    // START: FlutterFire Configuration
+    id("com.google.gms.google-services")
+    // END: FlutterFire Configuration
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
     id("com.chaquo.python")
@@ -46,12 +49,19 @@ android {
     }
 }
 
+val pythonPath = if (System.getProperty("os.name").lowercase().contains("windows")) {
+    "C:/Program Files/Python313/python.exe"
+} else {
+    "/usr/bin/python3.13"
+}
+
 chaquopy {
     defaultConfig {
-        version = "3.14"
-        buildPython("/usr/bin/python3")
+        version = "3.13"
+        buildPython(pythonPath)
         pip {
             install("websockets")
+            install("numpy")
         }
     }
 }

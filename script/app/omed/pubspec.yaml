@@ -10,6 +10,14 @@ dependencies:
   flutter:
     sdk: flutter
   web_socket_channel: ^3.0.3
+  google_sign_in: ^7.2.0
+  supabase_flutter: ^2.17.2
+  google_sign_in_all_platforms: ^2.0.3
+  font_awesome_flutter: ^11.0.0
+  app_links: ^7.2.1
+  flutter_midi_pro: ^4.0.4
+  flutter_dotenv: ^6.0.1
+
 
 dev_dependencies:
   flutter_test:
@@ -18,3 +26,8 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - lib/assets/bg-circle-glow.png
+    - lib/assets/soundfonts/FluidR3_GS.sf2
+    - lib/assets/soundfonts/FluidR3_GM.sf2
+    - lib/.env.local

@@ -5,7 +5,34 @@ plugins {
     // END: FlutterFire Configuration
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
-    id("com.chaquo.python")
+}
+
+val releaseStoreFile = providers.gradleProperty("OMED_RELEASE_STORE_FILE").orNull
+val releaseStorePassword = providers.gradleProperty("OMED_RELEASE_STORE_PASSWORD").orNull
+val releaseKeyAlias = providers.gradleProperty("OMED_RELEASE_KEY_ALIAS").orNull
+val releaseKeyPassword = providers.gradleProperty("OMED_RELEASE_KEY_PASSWORD").orNull
+val releaseSigningValues = listOf(
+    releaseStoreFile,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+)
+val hasReleaseSigning = releaseSigningValues.all { !it.isNullOrBlank() }
+val validateOmedReleaseSigning = tasks.register("validateOmedReleaseSigning") {
+    doLast {
+        if (!hasReleaseSigning) {
+            throw GradleException(
+                "Release signing is not configured. Provide OMED_RELEASE_STORE_FILE, " +
+                    "OMED_RELEASE_STORE_PASSWORD, OMED_RELEASE_KEY_ALIAS, and " +
+                    "OMED_RELEASE_KEY_PASSWORD through private Gradle properties."
+            )
+        }
+        if (!rootProject.file(releaseStoreFile!!).isFile) {
+            throw GradleException(
+                "The release keystore configured by OMED_RELEASE_STORE_FILE does not exist."
+            )
+        }
+    }
 }
 
 android {
@@ -40,28 +67,20 @@ android {
             }
         }
         getByName("release") {
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (hasReleaseSigning) {
+                signingConfigs.create("omedRelease").apply {
+                    storeFile = rootProject.file(releaseStoreFile!!)
+                    storePassword = releaseStorePassword
+                    keyAlias = releaseKeyAlias
+                    keyPassword = releaseKeyPassword
+                }
+            } else {
+                null
+            }
             ndk {
                 abiFilters.clear()
                 abiFilters.addAll(listOf("arm64-v8a", "x86_64"))
             }
-        }
-    }
-}
-
-val pythonPath = if (System.getProperty("os.name").lowercase().contains("windows")) {
-    "C:/Program Files/Python313/python.exe"
-} else {
-    "/usr/bin/python3.13"
-}
-
-chaquopy {
-    defaultConfig {
-        version = "3.13"
-        buildPython(pythonPath)
-        pip {
-            install("websockets")
-            install("numpy")
         }
     }
 }
@@ -74,4 +93,12 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+tasks.configureEach {
+    if ((name.startsWith("package") || name.startsWith("bundle")) &&
+        name.endsWith("Release")
+    ) {
+        dependsOn(validateOmedReleaseSigning)
+    }
 }

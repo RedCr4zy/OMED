@@ -9,8 +9,10 @@ import 'package:flutter_midi_pro/flutter_midi_pro.dart';
 
 const soundfontAssetPath = 'lib/assets/soundfonts/FluidR3_GM.sf2';
 
+/// Etats possibles du moteur : chargement, pret a jouer ou erreur.
 enum AudioStatus { uninitialized, initializing, ready, error }
 
+/// Informations suffisantes pour selectionner un preset MIDI du SoundFont.
 @immutable
 class AudioPreset {
   const AudioPreset({
@@ -20,34 +22,71 @@ class AudioPreset {
   });
 
   final String name;
+  /// Numero de banque MIDI du preset.
   final int bank;
+  /// Numero de programme MIDI (0 a 127).
   final int program;
 }
 
+/// Contrat commun aux moteurs audio Android et desktop.
+///
+/// Les methodes asynchrones initialisent le moteur, selectionnent un preset,
+/// envoient les evenements MIDI et liberent ensuite les ressources.
 abstract interface class AudioBackend {
+  /// Charge le moteur et renvoie tous les presets disponibles.
   Future<List<AudioPreset>> initialize();
+
+  /// Selectionne banque et programme pour le canal MIDI utilise par l'app.
   Future<void> selectPreset(AudioPreset preset);
+
+  /// Demarre une note MIDI avec une velocite comprise entre 0 et 127.
   Future<void> noteOn(int note, int velocity);
+
+  /// Relache une note demarree precedemment.
   Future<void> noteOff(int note);
+
+  /// Coupe immediatement toutes les notes du canal courant.
   Future<void> stopAllNotes();
+
+  /// Libere les ressources natives du moteur.
   Future<void> dispose();
 }
 
+// =========================================
+//           Service audio partage
+// =========================================
+/// Gere l'etat observable du moteur et expose les commandes a l'interface.
+///
+/// Exemple d'utilisation :
+/// ```dart
+/// final audio = AudioService.instance;
+/// await audio.initialize();
+/// await audio.selectPreset(audio.presets.first);
+/// await audio.noteOn(60);
+/// await audio.noteOff(60);
+/// ```
 class AudioService extends ChangeNotifier {
+  /// [backendFactory] sert a injecter un moteur simule dans les tests.
   AudioService({@visibleForTesting this.backendFactory});
 
+  /// Instance unique partagee entre les ecrans de l'application.
   static final AudioService instance = AudioService();
 
+  /// Fabrique optionnelle reservee aux tests automatises.
   @visibleForTesting
   final AudioBackend Function()? backendFactory;
+
+  /// Etat courant et donnees consultables par les widgets.
   AudioStatus status = AudioStatus.uninitialized;
   List<AudioPreset> presets = const [];
   AudioPreset? selectedPreset;
   String? errorMessage;
 
+  // Backend actuellement ouvert et initialisation en cours, le cas echeant.
   AudioBackend? _backend;
   Future<void>? _initialization;
 
+  /// Initialise une fois le moteur; les appels simultanes partagent la meme tache.
   Future<void> initialize() {
     if (status == AudioStatus.ready) return Future<void>.value();
     final pending = _initialization;
@@ -60,6 +99,7 @@ class AudioService extends ChangeNotifier {
     });
   }
 
+  /// Cree le backend, charge ses presets et publie le resultat aux widgets.
   Future<void> _initialize() async {
     status = AudioStatus.initializing;
     presets = const [];
@@ -94,6 +134,7 @@ class AudioService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Choisit le backend natif approprie a la plateforme d'execution.
   AudioBackend _createBackend() {
     final factory = backendFactory;
     if (factory != null) return factory();
@@ -104,6 +145,7 @@ class AudioService extends ChangeNotifier {
     throw UnsupportedError('Audio non pris en charge sur cette plateforme.');
   }
 
+  /// Arrete la note en cours puis applique la banque et le programme du preset.
   Future<void> selectPreset(AudioPreset preset) async {
     final backend = _requireBackend();
     try {
@@ -119,6 +161,7 @@ class AudioService extends ChangeNotifier {
     }
   }
 
+  /// Demarre une note MIDI; note et velocite doivent etre entre 0 et 127.
   Future<void> noteOn(int note, {int velocity = 100}) async {
     _validateMidiValue(note, 'note');
     _validateMidiValue(velocity, 'velocity');
@@ -133,6 +176,7 @@ class AudioService extends ChangeNotifier {
     }
   }
 
+  /// Relache la note MIDI indiquee.
   Future<void> noteOff(int note) async {
     _validateMidiValue(note, 'note');
     try {
@@ -146,6 +190,7 @@ class AudioService extends ChangeNotifier {
     }
   }
 
+  /// Arrete les sons si le backend est pret.
   Future<void> stopAllNotes() async {
     final backend = _backend;
     if (status != AudioStatus.ready || backend == null) return;
@@ -160,6 +205,7 @@ class AudioService extends ChangeNotifier {
     }
   }
 
+  /// Refuse les commandes tant que l'initialisation n'a pas reussi.
   AudioBackend _requireBackend() {
     if (status != AudioStatus.ready || _backend == null) {
       throw StateError(errorMessage ?? 'Le moteur audio n’est pas prêt.');
@@ -167,12 +213,14 @@ class AudioService extends ChangeNotifier {
     return _backend!;
   }
 
+  /// Verifie qu'une valeur peut etre encodee dans un message MIDI.
   void _validateMidiValue(int value, String name) {
     if (value < 0 || value > 127) {
       throw RangeError.range(value, 0, 127, name);
     }
   }
 
+  /// Arrete les sons et libere le backend ouvert.
   Future<void> shutdown() async {
     final backend = _backend;
     _backend = null;
@@ -185,6 +233,7 @@ class AudioService extends ChangeNotifier {
     }
   }
 
+  /// Evite de laisser des sons actifs si le service est detruit.
   @override
   void dispose() {
     unawaited(
@@ -196,11 +245,19 @@ class AudioService extends ChangeNotifier {
   }
 }
 
+// =========================================
+//       Backend FluidSynth pour Android
+// =========================================
+/// Adapte `flutter_midi_pro` au contrat audio commun.
+///
+/// Le plugin gere FluidSynth natif, la sortie audio Android et le chargement
+/// du fichier SoundFont depuis les assets Flutter.
 class AndroidFluidSynthBackend implements AudioBackend {
   final MidiPro _midi = MidiPro();
   int? _soundfontId;
 
   @override
+  /// Initialise le plugin et convertit sa liste de presets en modele commun.
   Future<List<AudioPreset>> initialize() async {
     await _midi.init(sampleRate: 48000, bufferSize: 128, polyphony: 128);
     try {
@@ -223,11 +280,13 @@ class AndroidFluidSynthBackend implements AudioBackend {
     }
   }
 
+  /// Identifiant renvoye par le chargement du SoundFont.
   int get _id =>
       _soundfontId ??
       (throw StateError('Le SoundFont Android n’est pas chargé.'));
 
   @override
+  /// Envoie la selection du preset au plugin Android.
   Future<void> selectPreset(AudioPreset preset) => _midi.selectInstrument(
     sfId: _id,
     channel: 0,
@@ -236,24 +295,37 @@ class AndroidFluidSynthBackend implements AudioBackend {
   );
 
   @override
+  /// Transmet un message MIDI Note On au canal 0.
   Future<void> noteOn(int note, int velocity) =>
       _midi.playNote(sfId: _id, channel: 0, key: note, velocity: velocity);
 
   @override
+  /// Transmet un message MIDI Note Off au canal 0.
   Future<void> noteOff(int note) =>
       _midi.stopNote(sfId: _id, channel: 0, key: note);
 
   @override
+  /// Coupe tous les sons emis par ce SoundFont.
   Future<void> stopAllNotes() => _midi.stopAllNotes(sfId: _id);
 
   @override
+  /// Libere l'instance du plugin et oublie l'identifiant du SoundFont.
   Future<void> dispose() async {
     if (_midi.isInitialized) await _midi.dispose();
     _soundfontId = null;
   }
 }
 
+// =========================================
+//       Backend FluidSynth desktop
+// =========================================
+/// Utilise l'API C de FluidSynth sur Linux, Windows et macOS.
+///
+/// La bibliotheque doit etre installee par le systeme. L'initialisation et le
+/// chargement du SoundFont sont envoyes dans un isolate pour ne pas bloquer l'UI.
 class DesktopFluidSynthBackend implements AudioBackend {
+  // Pointeurs opaques renvoyes par FluidSynth; ils restent valides jusqu'au
+  // nettoyage ordonne dans `dispose`.
   _FluidSynthBindings? _bindings;
   Pointer<Void>? _settings;
   Pointer<Void>? _synth;
@@ -261,6 +333,7 @@ class DesktopFluidSynthBackend implements AudioBackend {
   int? _soundfontId;
 
   @override
+  /// Ouvre FluidSynth, charge le SoundFont et enumere les presets disponibles.
   Future<List<AudioPreset>> initialize() async {
     final bindings = _FluidSynthBindings.open();
     _bindings = bindings;
@@ -301,6 +374,7 @@ class DesktopFluidSynthBackend implements AudioBackend {
     return presets;
   }
 
+  /// Cherche le SoundFont dans le dossier de lancement et les assets compiles.
   String _findSoundfont() {
     const relativePath = soundfontAssetPath;
     final executableDirectory = File(Platform.resolvedExecutable).parent;
@@ -319,6 +393,7 @@ class DesktopFluidSynthBackend implements AudioBackend {
     );
   }
 
+  /// Raccourcis avec erreurs explicites pour proteger les appels natifs.
   _FluidSynthBindings get _api =>
       _bindings ?? (throw StateError('FluidSynth n’est pas initialisé.'));
 
@@ -331,6 +406,7 @@ class DesktopFluidSynthBackend implements AudioBackend {
       (throw StateError('Le SoundFont FluidSynth n’est pas chargé.'));
 
   @override
+  /// Selectionne un programme dans le SoundFont charge.
   Future<void> selectPreset(AudioPreset preset) async {
     final result = _api.selectProgram(
       _activeSynth,
@@ -345,6 +421,7 @@ class DesktopFluidSynthBackend implements AudioBackend {
   }
 
   @override
+  /// Demarre une note MIDI via FluidSynth.
   Future<void> noteOn(int note, int velocity) async {
     if (_api.noteOn(_activeSynth, 0, note, velocity) != 0) {
       throw StateError('FluidSynth a refusé la note MIDI $note.');
@@ -352,6 +429,7 @@ class DesktopFluidSynthBackend implements AudioBackend {
   }
 
   @override
+  /// Relache une note MIDI via FluidSynth.
   Future<void> noteOff(int note) async {
     if (_api.noteOff(_activeSynth, 0, note) != 0) {
       throw StateError('FluidSynth n’a pas arrêté la note MIDI $note.');
@@ -359,6 +437,7 @@ class DesktopFluidSynthBackend implements AudioBackend {
   }
 
   @override
+  /// Coupe immediatement les sons du canal MIDI 0.
   Future<void> stopAllNotes() async {
     if (_api.allSoundsOff(_activeSynth, 0) != 0) {
       throw StateError('FluidSynth n’a pas arrêté les sons du canal MIDI.');
@@ -366,6 +445,7 @@ class DesktopFluidSynthBackend implements AudioBackend {
   }
 
   @override
+  /// Detruit le pilote audio avant le synth, puis libere SoundFont et reglages.
   Future<void> dispose() async {
     final api = _bindings;
     if (api == null) return;
@@ -389,6 +469,10 @@ class DesktopFluidSynthBackend implements AudioBackend {
   }
 }
 
+/// Cree FluidSynth dans l'isolate de travail et retourne ses pointeurs natifs.
+///
+/// Les pointeurs sont transmis sous forme d'adresses entieres puis reutilises
+/// uniquement sur l'isolate UI. Le driver audio natif conserve son propre thread.
 List<int> _createDesktopEngineInBackground(String soundfontPath) {
   final bindings = _FluidSynthBindings.open();
   Pointer<Void>? settings;
@@ -439,6 +523,13 @@ List<int> _createDesktopEngineInBackground(String soundfontPath) {
   }
 }
 
+// =========================================
+//       Liaison Dart vers l'API C
+// =========================================
+/// Charge les symboles FluidSynth et les expose avec leurs signatures Dart.
+///
+/// Les valeurs `Pointer<Void>` representent des objets opaques C; les typedefs
+/// ci-dessous doivent correspondre exactement aux declarations de FluidSynth.
 class _FluidSynthBindings {
   _FluidSynthBindings(DynamicLibrary library)
     : newSettings = library
@@ -509,6 +600,7 @@ class _FluidSynthBindings {
         'fluid_synth_set_gain',
       );
 
+  /// Charge le nom de bibliotheque correspondant au systeme d'exploitation.
   static _FluidSynthBindings open() {
     final candidates = switch (Platform.operatingSystem) {
       'linux' => ['libfluidsynth.so.3', 'libfluidsynth.so'],
@@ -543,6 +635,7 @@ class _FluidSynthBindings {
     );
   }
 
+  // Fonctions C converties en closures Dart par lookupFunction.
   final Pointer<Void> Function() newSettings;
   final void Function(Pointer<Void>) deleteSettings;
   final Pointer<Void> Function(Pointer<Void>) newSynth;
@@ -564,6 +657,7 @@ class _FluidSynthBindings {
   final void Function(Pointer<Void>, double) setGain;
 }
 
+// Types FFI : declaration native C suivie de son equivalent appelable en Dart.
 typedef _NewSettingsNative = Pointer<Void> Function();
 typedef _NewSettingsDart = Pointer<Void> Function();
 typedef _DeleteNative = Void Function(Pointer<Void>);

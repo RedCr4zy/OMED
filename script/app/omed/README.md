@@ -120,6 +120,12 @@ déclare une raison d’usage et l’entitlement Bluetooth. Pour une distributio
 Windows empaquetée, déclarer les capacités Bluetooth et radios dans le manifeste
 du package Windows.
 
+Une fois connectée, l’application s’abonne à la caractéristique de notification
+`fd3b6e10-0c0b-4b8e-9f5b-6e8f5d20a003`. Un capteur analogique peut être raccordé
+à GPIO34 (ADC1), avec une masse commune. Le signal analogique doit rester entre
+0 et 3,3 V. L’ESP32 transmet `ANALOG_VALUE:<valeur>` à 10 mesures par seconde;
+l’application affiche la dernière mesure sur une échelle de 0 à 4095.
+
 ## Tests et limites de validation
 
 `flutter test` couvre les transitions du service BLE au moyen d’un adaptateur

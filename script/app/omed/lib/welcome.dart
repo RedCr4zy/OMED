@@ -10,8 +10,16 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
+// =========================================
+//       Service d'authentification
+// =========================================
+/// Regroupe les appels d'authentification Google et Supabase.
+///
+/// Les methodes renvoient la session creee, ou `null` lorsque le flux OAuth
+/// desktop attend encore son retour par lien profond.
 class AuthService {
-
+  // Le client Google lit ses identifiants depuis l'environnement local.
+  // Un secret livre dans une application cliente ne constitue pas un secret prive.
   final _googleSignIn = GoogleSignIn(
     params: GoogleSignInParams(
       clientId: dotenv.env['googleClientId'],
@@ -20,10 +28,17 @@ class AuthService {
     ),
   );
 
+  // Client Supabase initialise dans main.dart.
   final _supabase = Supabase.instance.client;
 
+  // Protege le flux OAuth desktop contre les doubles clics pendant son ouverture.
   late bool _isOAuthInProgress = false;
 
+  /// Authentifie via Google : jeton natif Android ou navigateur sur desktop.
+  ///
+  /// Android echange l'identifiant Google directement contre une session
+  /// Supabase. Sur Linux, Windows et macOS, le navigateur revient via
+  /// `omed://login-callback/`; l'etat de session est alors diffuse par Supabase.
   Future<Session?> signInWithGoogle() async {
     if (Platform.isAndroid) {
       final credentials = await _googleSignIn.signIn();
@@ -67,6 +82,9 @@ class AuthService {
     return null;
   }
 
+  /// Cree un compte Supabase avec une adresse email et un mot de passe.
+  ///
+  /// Une session peut rester `null` si le projet exige une confirmation email.
   Future<Session?> signUpWithEmail(String email, String password) async {
     final response = await _supabase.auth.signUp(
       email: email,
@@ -75,6 +93,7 @@ class AuthService {
     return response.session;
   }
 
+  /// Ouvre une session Supabase avec les identifiants email/mot de passe.
   Future<Session?> signInWithEmail(String email, String password) async {
     final response = await _supabase.auth.signInWithPassword(
       email: email,
@@ -83,16 +102,23 @@ class AuthService {
     return response.session;
   }
 
+  /// Ferme les sessions Google locales puis Supabase.
   Future<void> signOut() async {
     await _googleSignIn.signOut();
     await _supabase.auth.signOut();
   }
 
+  /// Indique si une session Supabase est presente.
   bool get isAuthenticated => _supabase.auth.currentSession != null;
 
+  /// Utilisateur associe a la session courante, ou `null` si deconnecte.
   User? get currentUser => _supabase.auth.currentUser;
 }
 
+// =========================================
+//       Page d'accueil / authentification
+// =========================================
+/// Ecran d'accueil qui ouvre les dialogues de connexion et d'inscription.
 class Welcome extends StatefulWidget {
   const Welcome({super.key});
 
@@ -100,7 +126,9 @@ class Welcome extends StatefulWidget {
   State<Welcome> createState() => _WelcomeState();
 }
 
+/// Maintient les champs, validations et etats de chargement des formulaires.
 class _WelcomeState extends State<Welcome> {
+  /// Cree les controleurs des deux champs de saisie.
   @override
   void initState() {
     super.initState();
@@ -109,6 +137,7 @@ class _WelcomeState extends State<Welcome> {
     _passwordController = TextEditingController();
   }
 
+  /// Libere les controleurs et le notifier quand la page est retiree.
   @override
   void dispose() {
     _emailController.dispose();
@@ -117,6 +146,7 @@ class _WelcomeState extends State<Welcome> {
     super.dispose();
   }
 
+  // Controleurs de formulaire, service d'authentification et etat des boutons.
   late TextEditingController _emailController;
   late TextEditingController _passwordController;
   final _auth = AuthService();
@@ -125,12 +155,14 @@ class _WelcomeState extends State<Welcome> {
   final ValueNotifier<bool> _obscureText = ValueNotifier<bool>(true);
   final _formKey = GlobalKey<FormState>();
 
+  /// Inverse l'affichage masque/visible du mot de passe dans les deux formulaires.
   void _toggleVisibility() {
     setState(() {
       _obscureText.value = !_obscureText.value;
     });
   }
 
+  /// Lance Google Sign-In et affiche les erreurs de connexion a l'utilisateur.
   Future<void> _signInWithGoogle() async {
     setState(() => _googleLoading = true);
     try {
@@ -159,6 +191,7 @@ class _WelcomeState extends State<Welcome> {
     }
   }
 
+  /// Valide un nouvel utilisateur et redirige si Supabase ouvre une session.
   Future<void> _signUpWithEmail(String email, String password) async {
     setState(() => _emailLoading = true);
     try {
@@ -182,6 +215,7 @@ class _WelcomeState extends State<Welcome> {
     }
   }
 
+  /// Ouvre une session existante et rejoint l'accueil apres succes.
   Future<void> _signInWithEmail(String email, String password) async {
     setState(() => _emailLoading = true);
     try {
@@ -205,6 +239,13 @@ class _WelcomeState extends State<Welcome> {
     }
   }
 
+  // =========================================
+  //       Dialogue de creation de compte
+  // =========================================
+  /// Construit la fenetre d'inscription email avec option Google.
+  ///
+  /// `Form` execute les validateurs avant l'envoi. La session reussie est
+  /// traitee par [_signUpWithEmail]; une confirmation email peut la laisser nulle.
   Widget _signupPupopDialog(BuildContext context) {
     return AlertDialog(
       backgroundColor: AppColors.secondarySurface,
@@ -227,6 +268,10 @@ class _WelcomeState extends State<Welcome> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  // =========================================
+                  //             Champ adresse email
+                  // =========================================
+                  // Le validateur controle la presence et le format avant envoi.
                   TextFormField(
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
@@ -275,6 +320,10 @@ class _WelcomeState extends State<Welcome> {
                   ),
                   SizedBox(height: 32),
 
+                  // =========================================
+                  //               Champ mot de passe
+                  // =========================================
+                  // Le notifier reconstruit seulement ce champ pour le bouton oeil.
                   ValueListenableBuilder<bool>(
                     valueListenable: _obscureText,
                     builder: (context, obscure, _) {
@@ -336,6 +385,10 @@ class _WelcomeState extends State<Welcome> {
             ),
             SizedBox(height: 32),
 
+            // =========================================
+            //       Bouton valider l'inscription
+            // =========================================
+            // Cree le compte uniquement si tous les validateurs reussissent.
             ElevatedButton(
               onPressed: () {
                 if (_formKey.currentState!.validate()) {
@@ -351,6 +404,7 @@ class _WelcomeState extends State<Welcome> {
               ),
             ),
 
+            // Separateur visuel entre la creation par email et Google.
             SizedBox(height: 32),
             Row(
               children: [
@@ -363,6 +417,11 @@ class _WelcomeState extends State<Welcome> {
               ],
             ),
             SizedBox(height: 32),
+
+            // =========================================
+            //       Bouton connexion Google
+            // =========================================
+            // Le bouton est desactive pendant l'appel et montre un indicateur.
             ElevatedButton.icon(
               icon: FaIcon(
                 FontAwesomeIcons.google,
@@ -389,6 +448,13 @@ class _WelcomeState extends State<Welcome> {
     );
   }
 
+  // =========================================
+  //       Dialogue de connexion existante
+  // =========================================
+  /// Construit le formulaire email de connexion et l'option Google.
+  ///
+  /// Les validateurs sont locaux; les erreurs d'identifiants renvoyees par
+  /// Supabase sont ensuite presentees dans un SnackBar.
   Widget _signinPupopDialog(BuildContext context) {
     return AlertDialog(
       backgroundColor: AppColors.secondarySurface,
@@ -411,6 +477,10 @@ class _WelcomeState extends State<Welcome> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  // =========================================
+                  //             Champ adresse email
+                  // =========================================
+                  // L'adresse doit etre presente et respecter le format attendu.
                   TextFormField(
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
@@ -459,6 +529,10 @@ class _WelcomeState extends State<Welcome> {
                   ),
                   SizedBox(height: 32),
 
+                  // =========================================
+                  //               Champ mot de passe
+                  // =========================================
+                  // L'icone permet de basculer entre texte masque et visible.
                   ValueListenableBuilder<bool>(
                     valueListenable: _obscureText,
                     builder: (context, obscure, _) {
@@ -520,6 +594,10 @@ class _WelcomeState extends State<Welcome> {
             ),
             SizedBox(height: 32),
 
+            // =========================================
+            //        Bouton valider la connexion
+            // =========================================
+            // Tente la connexion seulement si les champs sont valides.
             ElevatedButton(
               onPressed: () {
                 if (_formKey.currentState!.validate()) {
@@ -534,6 +612,8 @@ class _WelcomeState extends State<Welcome> {
                 style: TextStyle(color: AppColors.background),
               ),
             ),
+
+            // Separation entre les deux methodes d'authentification.
             SizedBox(height: 32),
             Row(
               children: [
@@ -546,6 +626,11 @@ class _WelcomeState extends State<Welcome> {
               ],
             ),
             SizedBox(height: 32),
+
+            // =========================================
+            //       Bouton connexion Google
+            // =========================================
+            // Reutilise le meme flux Google que le bouton d'inscription.
             ElevatedButton.icon(
               icon: FaIcon(
                 FontAwesomeIcons.google,
@@ -572,6 +657,10 @@ class _WelcomeState extends State<Welcome> {
     );
   }
 
+  // =========================================
+  //       Widget de la page d'accueil
+  // =========================================
+  /// Affiche la marque OMED et les actions de connexion, inscription et credits.
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -607,6 +696,7 @@ class _WelcomeState extends State<Welcome> {
               Center(
                 child: Column(
                   children: [
+                    // Marque et avis indiquant que l'application est en beta.
                     SizedBox(height: height * 0.2),
                     Text(
                       "OMED",
@@ -628,9 +718,10 @@ class _WelcomeState extends State<Welcome> {
                     ),
                     SizedBox(height: height * 0.3),
 
-                    //====================
-                    // LOGIN BUTTON
-                    //====================
+                    // =========================================
+                    //       Bouton connexion par email
+                    // =========================================
+                    // Ouvre la boite de dialogue du compte existant.
                     SizedBox(
                       height: height * 0.07,
                       width: width * 0.75,
@@ -654,9 +745,10 @@ class _WelcomeState extends State<Welcome> {
 
                     SizedBox(height: height * 0.02),
 
-                    //====================
-                    // SIGNUP BUTTON
-                    //====================
+                    // =========================================
+                    //       Bouton creation de compte
+                    // =========================================
+                    // Ouvre le formulaire d'inscription.
                     SizedBox(
                       height: height * 0.07,
                       width: width * 0.75,
@@ -680,9 +772,10 @@ class _WelcomeState extends State<Welcome> {
 
                     SizedBox(height: height * 0.02),
 
-                    //====================
-                    // CREDITS BUTTON
-                    //====================
+                    // =========================================
+                    //              Bouton credits
+                    // =========================================
+                    // Action visuelle provisoire tant que la page credits n'existe pas.
                     SizedBox(
                       height: height * 0.07,
                       width: width * 0.75,

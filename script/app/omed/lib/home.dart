@@ -6,6 +6,10 @@ import 'constants/colors.dart';
 import 'service/audio_service.dart';
 import 'service/ble_service.dart';
 
+// =========================================
+//              Ecran principal
+// =========================================
+/// Ecran principal affichant le synthétiseur MIDI et le contrôleur ESP32.
 class Home extends StatefulWidget {
   const Home({super.key});
 
@@ -13,12 +17,19 @@ class Home extends StatefulWidget {
   State<Home> createState() => _HomeState();
 }
 
+/// Conserve l'etat local des selections et ecoute les services audio/BLE.
 class _HomeState extends State<Home> {
+  // Instances partagees initialisees au demarrage de l'application.
   final AudioService _audio = AudioService.instance;
   final BleService _ble = BleService.instance;
+
+  // Une note jouee par le bouton est arretee apres une demi-seconde.
   Timer? _noteTimer;
+
+  // Selectionne initialement le Do central (numero MIDI 60).
   int _selectedNote = 60;
 
+  /// Convertit un numero MIDI en nom de note français et numero d'octave.
   String _noteName(int midiNote) {
     const names = [
       'Do',
@@ -37,6 +48,10 @@ class _HomeState extends State<Home> {
     return '${names[midiNote % 12]} ${midiNote ~/ 12 - 1}';
   }
 
+  /// Joue brièvement la note selectionnee avec le preset audio courant.
+  ///
+  /// Arrete d'abord les notes precedentes pour eviter qu'une note ancienne
+  /// reste audible, puis programme l'envoi de `noteOff`.
   Future<void> _playNote() async {
     final note = _selectedNote;
     _noteTimer?.cancel();
@@ -51,6 +66,11 @@ class _HomeState extends State<Home> {
     }
   }
 
+  /// Execute une commande asynchrone et laisse les services afficher l'erreur.
+  ///
+  /// Une reconstruction locale permet de rafraichir l'interface apres la
+  /// mise a jour de l'etat d'erreur. L'erreur ne remonte pas jusqu'a Flutter,
+  /// car le service associe conserve le message a afficher.
   Future<void> _run(Future<void> operation) async {
     try {
       await operation;
@@ -61,6 +81,7 @@ class _HomeState extends State<Home> {
 
   @override
   void dispose() {
+    // Annule la minuterie et arrete toutes les notes en quittant cet ecran.
     _noteTimer?.cancel();
     unawaited(
       _audio.stopAllNotes().catchError(
@@ -73,6 +94,11 @@ class _HomeState extends State<Home> {
 
   @override
   Widget build(BuildContext context) {
+    // =========================================
+    //       Mise en page de l'ecran principal
+    // =========================================
+    // Le fond decoratif deborde volontairement; SafeArea protege le contenu
+    // interactif et la largeur maximale garde les cartes lisibles sur desktop.
     return Scaffold(
       backgroundColor: AppColors.background,
       body: LayoutBuilder(
@@ -139,6 +165,10 @@ class _HomeState extends State<Home> {
     );
   }
 
+  // =========================================
+  //       Carte du synthetiseur MIDI
+  // =========================================
+  /// Construit les controles du moteur, du preset, de la note et de lecture.
   Widget _buildAudioControls() {
     final audioReady = _audio.status == AudioStatus.ready;
     return Card(
@@ -147,6 +177,7 @@ class _HomeState extends State<Home> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // Etat du moteur et indication de progression lors du chargement.
             Text(
               'Synthétiseur MIDI',
               style: Theme.of(context).textTheme.titleLarge,
@@ -171,6 +202,8 @@ class _HomeState extends State<Home> {
             ],
             if (audioReady) ...[
               const SizedBox(height: 18),
+
+              // Selection du preset SoundFont. Changer d'instrument arrete les notes.
               DropdownButtonFormField<AudioPreset>(
                 key: ValueKey('audio-${_audio.presets.length}'),
                 initialValue: _audio.selectedPreset,
@@ -196,6 +229,8 @@ class _HomeState extends State<Home> {
                 },
               ),
               const SizedBox(height: 14),
+
+              // Limite la selection aux notes MIDI 36 a 84, puis affiche leur nom.
               DropdownButtonFormField<int>(
                 key: const ValueKey('midi-note'),
                 initialValue: _selectedNote,
@@ -214,6 +249,8 @@ class _HomeState extends State<Home> {
                 },
               ),
               const SizedBox(height: 16),
+
+              // Demarre la note choisie; elle sera arretee automatiquement.
               ElevatedButton.icon(
                 onPressed: _playNote,
                 icon: const Icon(Icons.music_note),
@@ -226,6 +263,13 @@ class _HomeState extends State<Home> {
     );
   }
 
+  // =========================================
+  //       Carte du controleur BLE ESP32
+  // =========================================
+  /// Affiche l'etat Bluetooth, les mesures et les commandes de connexion.
+  ///
+  /// Seuls les appareils qui annoncent le service OMED sont retournes par le
+  /// service. L'utilisateur choisit explicitement lequel connecter.
   Widget _buildBleControls() {
     final isScanning = _ble.status == BleStatus.scanning;
     final isConnected = _ble.status == BleStatus.connected;
@@ -243,11 +287,18 @@ class _HomeState extends State<Home> {
             ),
             const SizedBox(height: 8),
             Text(_bleStatusLabel),
+            if (isConnected && _ble.lastSensorValue != null) ...[
+              const SizedBox(height: 8),
+              Text('Mesure analogique : ${_ble.lastSensorValue} / 4095'),
+            ],
             if (_ble.errorMessage case final message?) ...[
               const SizedBox(height: 10),
               _ErrorText(message),
             ],
             const SizedBox(height: 12),
+
+            // Le bouton propose une deconnexion si un appareil est actif,
+            // sinon il demarre ou arrete la recherche BLE.
             if (isConnected)
               OutlinedButton.icon(
                 onPressed: () => unawaited(_run(_ble.disconnect())),
@@ -274,6 +325,9 @@ class _HomeState extends State<Home> {
             ],
             if (_ble.devices.isNotEmpty) ...[
               const SizedBox(height: 12),
+
+              // Une ligne par appareil trouve, avec puissance du signal et
+              // action de connexion desactivee pendant les transitions.
               for (final device in _ble.devices)
                 ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -303,6 +357,7 @@ class _HomeState extends State<Home> {
     );
   }
 
+  /// Traduit l'etat du moteur audio en texte lisible pour l'utilisateur.
   String get _audioStatusLabel => switch (_audio.status) {
     AudioStatus.uninitialized => 'En attente du moteur audio.',
     AudioStatus.initializing => 'Chargement de FluidSynth et du SoundFont…',
@@ -311,6 +366,7 @@ class _HomeState extends State<Home> {
     AudioStatus.error => 'Le moteur audio n’a pas pu démarrer.',
   };
 
+  /// Traduit l'etat de la liaison BLE en texte d'interface.
   String get _bleStatusLabel => switch (_ble.status) {
     BleStatus.checking => 'Vérification du Bluetooth…',
     BleStatus.unavailable => 'Bluetooth indisponible.',
@@ -323,6 +379,10 @@ class _HomeState extends State<Home> {
   };
 }
 
+// =========================================
+//       Message d'erreur selectionnable
+// =========================================
+/// Affiche un message d'erreur copiable pour faciliter le diagnostic.
 class _ErrorText extends StatelessWidget {
   const _ErrorText(this.message);
 
@@ -330,6 +390,7 @@ class _ErrorText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Le texte selectionnable permet de copier les details techniques.
     return SelectableText(
       message,
       style: TextStyle(color: Theme.of(context).colorScheme.error),
